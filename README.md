@@ -40,7 +40,10 @@
 **SUDRF Scraper** использует драйвер **FireFox**, поэтому у вас на устройстве должен быть установлен браузер Firefox. Если вы видите сообщения об ошибках, связанных с WebDriver, попробуйте:
 
 - Скачать драйвер для вашей операционной системы со страницы https://github.com/mozilla/geckodriver/releases
-- Заменить драйвер в папке `./src/main/resources/<имя вашей операционной системы>/`.
+- Указать путь к geckodriver через переменную окружения `GECKODRIVER_PATH` или свойство `selenium.geckodriver.path`
+- При необходимости указать путь к браузеру через `FIREFOX_BINARY` или `selenium.firefox.binary`
+- При необходимости отключить headless-режим через `SELENIUM_HEADLESS=false` или `selenium.headless=false`
+- Если явные пути не заданы, приложение попробует использовать драйвер из папки `./src/main/resources/<имя вашей операционной системы>/`.
 
 Не рекомендуется осуществлять поиск дел только по тексту из судебного решения. Многие суды не поддерживают такой формат запроса, поэтому поиск будет осуществляться среди всех опубликованных к данному моменту решений. Задавайте дополнительные параметры поиска в других полях.
 
@@ -121,7 +124,10 @@ Otherwise, you should open the terminal and enter /path/to/run.sh (full path to 
 Scraper uses Firefox WebDriver, so you should have the Firefox browser. If you see errors about WebDriver in logs, follow these instruction that may help:
 
 - Visit [https://github.com/mozilla/geckodriver/releases](https://github.com/mozilla/geckodriver/releases) and download the driver for your OS.
-- Replace the driver in ./src/main/resources/"name-of-your-OS"/.
+- Point the application to geckodriver with `GECKODRIVER_PATH` or `selenium.geckodriver.path`.
+- If Firefox is installed outside the default lookup paths, set `FIREFOX_BINARY` or `selenium.firefox.binary`.
+- If you need a visible browser window, disable headless mode with `SELENIUM_HEADLESS=false` or `selenium.headless=false`.
+- If explicit paths are not set, the application falls back to the bundled driver path in `./src/main/resources/"name-of-your-OS"/`.
 
 Scraped cases are from courts of general jurisdiction.
 

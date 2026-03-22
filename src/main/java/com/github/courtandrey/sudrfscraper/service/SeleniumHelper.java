@@ -1,14 +1,26 @@
 package com.github.courtandrey.sudrfscraper.service;
 
 import com.github.courtandrey.sudrfscraper.configuration.ApplicationConfiguration;
+import com.github.courtandrey.sudrfscraper.service.logger.LoggingLevel;
+import com.github.courtandrey.sudrfscraper.service.logger.SimpleLogger;
 import org.openqa.selenium.*;
 import org.openqa.selenium.firefox.FirefoxDriver;
 import org.openqa.selenium.firefox.FirefoxOptions;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
+import java.util.Optional;
 
 public class SeleniumHelper {
+
+    private static final String FIREFOX_BINARY_ENV = "FIREFOX_BINARY";
+    private static final String FIREFOX_BINARY_PROPERTY = "selenium.firefox.binary";
+    private static final String GECKODRIVER_PATH_ENV = "GECKODRIVER_PATH";
+    private static final String GECKODRIVER_PATH_PROPERTY = "selenium.geckodriver.path";
+    private static final String SELENIUM_HEADLESS_ENV = "SELENIUM_HEADLESS";
+    private static final String SELENIUM_HEADLESS_PROPERTY = "selenium.headless";
 
     private static WebDriver wd;
     private static SeleniumHelper sh;
@@ -40,59 +52,104 @@ public class SeleniumHelper {
     }
 
     public static synchronized WebDriver createDriver() {
-        String os = System.getProperty("os.name");
-        String nul = "nul";
-        if (os.toLowerCase().contains("linux")) {
-            nul = "/dev/null";
-            System.setProperty("webdriver.gecko.driver", ApplicationConfiguration.getUsrDir() + "/src/main/resources/linux/geckodriver");
-        }
-        else if (os.toLowerCase().contains("windows")) {
-            System.setProperty("webdriver.gecko.driver", ApplicationConfiguration.getUsrDir() + "/src/main/resources/windows/geckodriver.exe");
-        } else if (os.toLowerCase().contains("mac")) {
-            nul = "/dev/null";
-            System.setProperty("webdriver.gecko.driver", ApplicationConfiguration.getUsrDir() + "/src/main/resources/macOS/geckodriver");
-        }
-
-        System.setProperty(FirefoxDriver.SystemProperty.BROWSER_LOGFILE, nul);
-        FirefoxOptions options = new FirefoxOptions();
-        WebDriver wd = new FirefoxDriver(options);
-        wd.manage().timeouts().pageLoadTimeout(Duration.ofMinutes(1));
-        wd.manage().timeouts().scriptTimeout(Duration.ofMinutes(1));
-        wd.manage().timeouts().implicitlyWait(Duration.ofMinutes(1));
-        return wd;
+        return buildDriver();
     }
 
     public static synchronized SeleniumHelper getInstance() {
         if (sh == null) {
-            String os = System.getProperty("os.name");
-            String nul = "nul";
-            if (os.toLowerCase().contains("linux")) {
-                nul = "/dev/null";
-                System.setProperty("webdriver.gecko.driver", ApplicationConfiguration.getUsrDir() + "/src/main/resources/linux/geckodriver");
-            }
-            else if (os.toLowerCase().contains("windows")) {
-                System.setProperty("webdriver.gecko.driver", ApplicationConfiguration.getUsrDir() + "/src/main/resources/windows/geckodriver.exe");
-            } else if (os.toLowerCase().contains("mac")) {
-                nul = "/dev/null";
-                System.setProperty("webdriver.gecko.driver", ApplicationConfiguration.getUsrDir() + "/src/main/resources/macOS/geckodriver");
-            }
-
-            System.setProperty(FirefoxDriver.SystemProperty.BROWSER_LOGFILE, nul);
-            FirefoxOptions options = new FirefoxOptions();
-            options.addArguments("--headless");
-            options.setPageLoadStrategy(PageLoadStrategy.EAGER);
             sh = new SeleniumHelper();
-            wd = new FirefoxDriver(options);
-            wd.manage().timeouts().pageLoadTimeout(Duration.ofMinutes(1));
-            wd.manage().timeouts().scriptTimeout(Duration.ofMinutes(1));
+        }
+        if (wd == null) {
+            reset();
         }
         return sh;
     }
 
     private static void reset() {
-        wd = new FirefoxDriver();
-        wd.manage().timeouts().pageLoadTimeout(Duration.ofMinutes(1));
-        wd.manage().timeouts().scriptTimeout(Duration.ofMinutes(1));
+        wd = buildDriver();
+    }
+
+    private static WebDriver buildDriver() {
+        configureDriverProperties();
+
+        FirefoxOptions options = new FirefoxOptions();
+        if (isHeadlessEnabled()) {
+            options.addArguments("--headless");
+        }
+        options.setPageLoadStrategy(PageLoadStrategy.EAGER);
+        resolveConfiguredPath(FIREFOX_BINARY_ENV, FIREFOX_BINARY_PROPERTY)
+                .filter(path -> !path.isBlank())
+                .ifPresent(options::setBinary);
+
+        WebDriver driver = new FirefoxDriver(options);
+        driver.manage().timeouts().pageLoadTimeout(Duration.ofMinutes(1));
+        driver.manage().timeouts().scriptTimeout(Duration.ofMinutes(1));
+        driver.manage().timeouts().implicitlyWait(Duration.ofMinutes(1));
+        return driver;
+    }
+
+    private static void configureDriverProperties() {
+        System.setProperty(FirefoxDriver.SystemProperty.BROWSER_LOGFILE, resolveBrowserLogFile());
+
+        Optional<String> configuredGeckoDriverPath = resolveConfiguredPath(GECKODRIVER_PATH_ENV, GECKODRIVER_PATH_PROPERTY)
+                .filter(path -> !path.isBlank());
+
+        if (configuredGeckoDriverPath.isPresent()) {
+            System.setProperty("webdriver.gecko.driver", configuredGeckoDriverPath.get());
+            return;
+        }
+
+        resolveFallbackGeckoDriverPath()
+                .filter(Files::exists)
+                .map(Path::toString)
+                .ifPresent(path -> System.setProperty("webdriver.gecko.driver", path));
+    }
+
+    private static Optional<String> resolveConfiguredPath(String envKey, String propertyKey) {
+        String envValue = System.getenv(envKey);
+        if (envValue != null && !envValue.isBlank()) {
+            return Optional.of(envValue.trim());
+        }
+
+        String propertyValue = ApplicationConfiguration.props.getProperty(propertyKey);
+        if (propertyValue != null && !propertyValue.isBlank()) {
+            return Optional.of(propertyValue.trim());
+        }
+
+        return Optional.empty();
+    }
+
+    private static Optional<Path> resolveFallbackGeckoDriverPath() {
+        String os = System.getProperty("os.name", "").toLowerCase();
+        if (os.contains("linux")) {
+            return Optional.of(Path.of(ApplicationConfiguration.getUsrDir(), "src", "main", "resources", "linux", "geckodriver"));
+        }
+        if (os.contains("windows")) {
+            return Optional.of(Path.of(ApplicationConfiguration.getUsrDir(), "src", "main", "resources", "windows", "geckodriver.exe"));
+        }
+        if (os.contains("mac")) {
+            return Optional.of(Path.of(ApplicationConfiguration.getUsrDir(), "src", "main", "resources", "macOS", "geckodriver"));
+        }
+        return Optional.empty();
+    }
+
+    private static String resolveBrowserLogFile() {
+        String os = System.getProperty("os.name", "").toLowerCase();
+        return os.contains("windows") ? "nul" : "/dev/null";
+    }
+
+    private static boolean isHeadlessEnabled() {
+        String envValue = System.getenv(SELENIUM_HEADLESS_ENV);
+        if (envValue != null && !envValue.isBlank()) {
+            return Boolean.parseBoolean(envValue.trim());
+        }
+
+        String propertyValue = ApplicationConfiguration.props.getProperty(SELENIUM_HEADLESS_PROPERTY);
+        if (propertyValue != null && !propertyValue.isBlank()) {
+            return Boolean.parseBoolean(propertyValue.trim());
+        }
+
+        return true;
     }
 
     public synchronized String getCurrentUrl() {
@@ -122,12 +179,20 @@ public class SeleniumHelper {
     }
 
     public static synchronized void endSession() {
-        if (isActive()) wd.quit();
+        if (isActive()) {
+            wd.quit();
+            wd = null;
+        }
         sh = null;
     }
 
     public static synchronized void killApp() {
+        if (appHolder == null) {
+            SimpleLogger.log(LoggingLevel.WARNING, "Application browser holder is not initialized, nothing to close.");
+            return;
+        }
         appHolder.quit();
+        appHolder = null;
     }
 
 }
